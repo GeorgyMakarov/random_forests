@@ -1,12 +1,12 @@
-# Source: https://rafalab.github.io/dsbook/examples-of-algorithms.html#random-forests
-# Example of random forest
 library(dplyr)
 library(dslabs)
 library(ggplot2)
 library(randomForest)
+
+# Example of random forest
+# Source: https://rafalab.github.io/dsbook/examples-of-algorithms.html#random-forests
 data(polls_2008)
 
-# Explore data
 plot(x     = polls_2008$day,
      y     = polls_2008$margin,
      col   = "dodgerblue1",
@@ -19,15 +19,11 @@ points(x     = polls_2008$day,
        y     = polls_2008$margin,
        pch   = 21)
 
-
-# Fit random forest model
 fit = randomForest(margin ~., data = polls_2008)
 plot(fit,
      frame = F,
      col   = "blue")
 
-
-# Make fit plot
 polls_2008 %>% 
     mutate(y_hat = predict(fit, newdata = polls_2008)) %>% 
     ggplot() +
@@ -37,10 +33,14 @@ polls_2008 %>%
 
 rm(list = ls())
 
+
 # Digits example
+# Source: https://rafalab.github.io/dsbook/examples-of-algorithms.html#random-forests
 mydata = mnist_27$train
 head(mydata)
 
 train_rf = randomForest(y ~., data = mnist_27$train)
 caret::confusionMatrix(predict(train_rf, mnist_27$test),
                        mnist_27$test$y)$overall["Accuracy"]
+
+
