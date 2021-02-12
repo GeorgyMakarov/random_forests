@@ -36,6 +36,10 @@ Languages and tools used in this project:
 <br />
 <br />
 
-[research]: https://dq-blog-files.s3.amazonaws.com/10Algorithms-08.pdf  
+[research]: https://dq-blog-files.s3.amazonaws.com/10Algorithms-08.pdf 
+[Linkedin]: https://www.linkedin.com/in/georgy-makarov-11436b42/  
+[Rstudio]: https://rstudio.com
+[Github]: https://github.com  
+[Git]: https://git-scm.com  
 
 
