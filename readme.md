@@ -10,7 +10,24 @@ help improve the performance.
 
 **Bagging** is the first feature. Random forest generates a prediction based
 on the average prediction of many decision trees. This approach works if the
-trees are randomly different. 
+trees are randomly different.
+
+**Randomizing variables** that build a tree is the second feature. Randomly
+choosing the variables reduces the correlation between the trees in the
+forest.
+
+One possible drawback when a researcher uses *random forests* could be a loss
+in interpretation of the variables. The is a walkaround for this known issue.
+Random forests difine variable importance by counting how often a variable is
+used in the individual trees.
+
+The purpose of this project is to learn how to use random forests in multiple
+and binary classification models. The project consists of two parts. In the 
+first part, we look at model tuning parameters and different approaches to 
+model tuning. In the second part, we make a data product that classifies the
+cars. 
+
+**TODO: decide, which dataset to use for data product**
 
 
 
