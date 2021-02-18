@@ -4,6 +4,7 @@ library(dslabs)
 library(ggplot2)
 library(randomForest)
 library(caret)
+library(rpart)
 
 # Decision tree motivation example
 # Source: https://rafalab.github.io/dsbook/examples-of-algorithms.html#classification-and-regression-trees-cart
@@ -172,3 +173,125 @@ mtcars_rf = randomForest(mpg ~.,
                          importance  = TRUE)
 importance(mtcars_rf)
 importance(mtcars_rf, type = 1)
+
+
+# Exercises:part 1
+# Source: https://rafalab.github.io/dsbook/examples-of-algorithms.html
+
+library(caret)
+library(dplyr)
+
+# 1. Create a simple dataset where the outcome grows 0.75 units on average for 
+#    every increase in a predictor
+n     = 1e3
+sigma = 0.25
+set.seed(123)
+x     = rnorm(n, 0, 1)
+y     = 0.75 * x + rnorm(n, 0, sigma)
+data  = data.frame(x = x, y = y)
+rm(n, x, y, sigma)
+
+# 2. Use rpart to create a regression tree and save results to `fit`
+fit_rpart = rpart::rpart(y ~ x, data = data)
+plot(fit_rpart, margin = 0.1)
+text(fit_rpart, cex = 0.75)
+
+# 3. Make a scatterplot of y vs x values along with predicted values based on `fit`
+data %>% 
+    mutate(y_hat = predict(fit_rpart)) %>% 
+    ggplot() +
+    geom_point(aes(x, y), col = "darkgrey") +
+    geom_step(aes(x, y_hat), col="red", lwd = 1.1)
+
+# 4. Model random forest using `randomForest` package
+fit_rf1 = randomForest(y ~ x, data = data)
+data %>% 
+    mutate(y_hat = predict(fit_rf1, newdata = data)) %>% 
+    ggplot() +
+    geom_point(aes(x, y), col = "darkgrey") +
+    geom_line(aes(x, y_hat), col = "red")
+
+# 5. Check if random forest error is stable
+plot(fit_rf1, col = "blue")
+
+# 6. Set nodesize to 50 and maxnodes to 25. Compare the smootheness of two fits.
+fit_rf2 = randomForest(y ~ x,
+                       data     = data,
+                       nodesize = 50,
+                       maxnodes = 25)
+
+data %>% 
+    mutate(y_hat1 = predict(fit_rf1, newdata = data),
+           y_hat2 = predict(fit_rf2, newdata = data)) %>% 
+    ggplot() +
+    geom_point(aes(x, y), col = "darkgrey") +
+    geom_line(aes(x, y_hat1), col = "red") +
+    geom_line(aes(x, y_hat2), col = "blue")
+
+# 7. Use `train` function to help pick up correct values
+mn        = seq(5, 250, 25)
+rmse_logs = sapply(mn, function(mn){
+    caret::train(y ~ x,
+                 method = "Rborist",
+                 data   = mydata,
+                 tuneGrid = data.frame(predFixed = 1,
+                                       minNode   = 20))$results$RMSE
+})
+qplot(mn, rmse_logs)
+
+train_rf_3 = randomForest(y ~ x,
+                          data = data,
+                          nodesize = mn[which.min(rmse_logs)])
+
+# 8. Make scatter plot with predictions from best model
+data %>% 
+    mutate(y_hat1 = predict(fit_rf1, newdata = data),
+           y_hat2 = predict(fit_rf2, newdata = data),
+           y_hat3 = predict(train_rf_3, newdata = data)) %>% 
+    ggplot() +
+    geom_point(aes(x, y), col = "darkgrey") +
+    geom_line(aes(x, y_hat1), col = "dodgerblue1") +
+    geom_line(aes(x, y_hat2), col = "blue") +
+    geom_line(aes(x, y_hat3), col = "red")
+
+
+# 9. Use `rpart` function to fit a classification tree to the dataset
+#    `tissue_gene_expression`
+mydata = tissue_gene_expression
+rm(tissue_gene_expression)
+
+rpart_1 = rpart(y ~ x, data = mydata)
+summary(rpart_1)
+rpart_2 = with(mydata, train(x, y,
+                             method = "rpart",
+                             tuneGrid = data.frame(cp = seq(0.00, 0.05, 0.01))))
+ggplot(rpart_2)
+
+# 10. Study the confusion matrix
+y_hat = predict(rpart_2, newdata = mydata$x)
+confusionMatrix(y_hat, mydata$y)$overall["Accuracy"]
+
+# 11. Does the change in minnode increase the accuracy?
+
+# 12. Plot the tree from the best fitting model
+plot(rpart_2$finalModel, margin = 0.1)
+text(rpart_2$finalModel, cex = 0.75)
+rpart_2$finalModel
+
+# 13. Grow a random forest with nodesize = 1, mtry = seq(50, 200, 25)
+set.seed(1990)
+train_rf_1 = with(mydata,
+                  train(x, y,
+                        method   = "rf",
+                        tuneGrid = data.frame(mtry = seq(50, 200, 25)),
+                        nodesize = 1))
+acc  = train_rf_1$results$Accuracy
+mtry = train_rf_1$results$mtry
+qplot(mtry, acc)
+
+# 14. Extract variables importance
+var_imp = train_rf_1$finalModel$importance
+var_imp = data.frame(var_imp)
+var_imp = var_imp %>% arrange(desc(MeanDecreaseGini))
+
+rm(list = ls())
