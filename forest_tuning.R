@@ -277,6 +277,7 @@ plot(x     = perf$roc,
 #TODO: add legend to model performance plot
 #TODO: add comparison to the model from infert package
 #TODO: test for near-zero vals and look at preprocessing
+#TODO: test h2o package -- does it make any sense?!
 
 
 # Code from dataset page
