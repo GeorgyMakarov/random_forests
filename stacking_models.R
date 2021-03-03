@@ -39,7 +39,7 @@ infert_train$case = relevel(infert_train$case, ref = "yes")
 
 
 # Make hyperparameters grid
-hyper_grid = expand.grid(mtry        = seq(2, 6, by = 1), 
+hyper_grid = expand.grid(mtry        = seq(2, 5, by = 1), 
                          node_size   = seq(2, 9, by = 2), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
@@ -59,18 +59,19 @@ for (i in 1:nrow(hyper_grid)){
     hyper_grid$OOB_RMSE[i] = sqrt(model$prediction.error)
 }
 
-hyper_grid %>% 
-    dplyr::arrange(OOB_RMSE) %>% 
-    head(10)
+(choice = 
+        hyper_grid %>% 
+        dplyr::arrange(OOB_RMSE) %>% 
+        head(10))
 
 
 # Make model with the best params: mtry = 3, ns = 5, sample = 0.550
 modelb = ranger(formula         = case ~.,
                 data            = infert_train,
                 num.trees       = 500,
-                mtry            = 3,
-                min.node.size   = 6,
-                sample.fraction = 0.550,
+                mtry            = choice$mtry[1],
+                min.node.size   = choice$node_size[1],
+                sample.fraction = choice$sample_size[1],
                 probability     = T, 
                 seed            = 123)
 
@@ -136,3 +137,7 @@ output = output %>% select(obs, pred, pred.yes, pred.no)
 colnames(output) = c("obs", "pred", "yes", "no")
 confusionMatrix(data = output$pred, reference = output$obs)
 twoClassSummary(data = output, lev  = levels(output$obs))
+
+# TODO: McNemar
+# TODO: ROC AUC plot
+# TODO: Model ensembles
