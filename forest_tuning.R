@@ -281,14 +281,3 @@ legend("topleft",
                   "balanced_grid"),
        col = 1:5,
        pch = 16)
-
-
-
-
-
-#TODO: test for near-zero vals and look at preprocessing
-#TODO: try different variables
-#TODO: try random forest ensembles
-#TODO: test h2o package -- does it make any sense?!
-
-
