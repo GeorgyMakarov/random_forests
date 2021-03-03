@@ -190,14 +190,14 @@ hyper_grid_bs = expand.grid(mtry        = seq(2, 7, by = 1),
                             sample_size = c(0.55, 0.632, 0.70, 0.80),
                             OOB_RMSE    = 0)
 
-for (i in 1:nrow(hyper_grid)){
+for (i in 1:nrow(hyper_grid_bs)){
     
     model = ranger(formula         = case ~.,
                    data            = infert_rose,
                    num.trees       = 500,
-                   mtry            = hyper_grid$mtry[i],
-                   min.node.size   = hyper_grid$node_size[i],
-                   sample.fraction = hyper_grid$sample_size[i],
+                   mtry            = hyper_grid_bs$mtry[i],
+                   min.node.size   = hyper_grid_bs$node_size[i],
+                   sample.fraction = hyper_grid_bs$sample_size[i],
                    seed            = 123)
     
     hyper_grid_bs$OOB_RMSE[i] = sqrt(model$prediction.error)
@@ -273,25 +273,22 @@ plot(x     = perf$roc,
      xlab  = "ROC",
      ylab  = "Sensitivity",
      main  = "Models performance")
+legend("topleft",
+       legend = c("balanced grid",
+                  "basic model",
+                  "cv_rf",
+                  "grid_search",
+                  "balanced_grid"),
+       col = 1:5,
+       pch = 16)
 
-#TODO: add legend to model performance plot
-#TODO: add comparison to the model from infert package
+
+
+
+
 #TODO: test for near-zero vals and look at preprocessing
+#TODO: try different variables
+#TODO: try random forest ensembles
 #TODO: test h2o package -- does it make any sense?!
 
 
-# Code from dataset page
-model_glm <- glm(case ~ spontaneous+induced, 
-                 data = infert_train, 
-                 family = binomial())
-summary(model_glm)
-## adjusted for other potential confounders:
-summary(model2 <- glm(case ~ age+parity+education+spontaneous+induced,
-                      data = infert, family = binomial()))
-## Really should be analysed by conditional logistic regression
-## which is in the survival package
-if(require(survival)){
-    model3 <- clogit(case ~ spontaneous+induced+strata(stratum), data = infert)
-    print(summary(model3))
-    detach()  # survival (conflicts)
-}
