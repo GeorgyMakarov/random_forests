@@ -26,9 +26,9 @@ rm(in_train)
 # Remove highly correlated variables
 # Remove outliers
 infert_train = infert_train[, -8]
-temp_train = infert_train[, -c(1, 5)]
-mahal_dist = mahalanobis(temp_train, colMeans(temp_train), cov(temp_train))
-outs = which(mahal_dist > 10.5)
+temp_train   = infert_train[, -c(1, 5)]
+mahal_dist   = mahalanobis(temp_train, colMeans(temp_train), cov(temp_train))
+outs         = which(mahal_dist > 10.5)
 infert_train$parity[outs] = median(infert_train$parity)
 rm(mahal_dist, temp_train, outs)
 
@@ -138,6 +138,13 @@ colnames(output) = c("obs", "pred", "yes", "no")
 confusionMatrix(data = output$pred, reference = output$obs)
 twoClassSummary(data = output, lev  = levels(output$obs))
 
-# TODO: McNemar
-# TODO: ROC AUC plot
-# TODO: Model ensembles
+
+# Plot ROC AUC curve
+suppressPackageStartupMessages(library(pROC))
+output$obs_num  = ifelse(output$obs == "yes", 1, 0)
+output$pred_num = ifelse(output$pred == "yes", 1, 0)
+roc_score       = roc(output$obs_num, output$pred_num)
+plot.roc(roc_score,
+         print.auc   = T,
+         auc.polygon = T,
+         grid.col    = c("green", "red"))
