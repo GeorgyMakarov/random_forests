@@ -159,6 +159,188 @@ rm(tmp)
 
 
 # Create a variable that will combine person's titles
-# 
+# Convert all military to Sir
+# Convert all ladies to some kind of universal category
+all_data$Title = sapply(all_data$Name, 
+                        FUN = function(x){strsplit(x, split = '[,.]')[[1]][2]})
+all_data$Title = sub(' ', '', all_data$Title)
+table(all_data$Title[!is.na(all_data$Survived)])
+table(all_data$Survived[!is.na(all_data$Survived)],
+      all_data$Title[!is.na(all_data$Survived)])
+
+militants = c('Capt', 'Col', 'Don', 'Major', 'Sir')
+ladies    = c('Dona', 'Lady', 'the Countess', 'Jonkheer')
+mrs       = c('Miss', 'Mlle', 'Mme', 'Mrs', 'Ms')
+
+all_data$Title[all_data$Title %in% militants] = 'Sir'
+all_data$Title[all_data$Title %in% ladies]    = 'Lady'
+all_data$Title[all_data$Title %in% mrs] = 'Mrs'
+all_data$Title = as.factor(all_data$Title)
+rm(militants, ladies, mrs)
+rm(train, test)
 
 
+# Data preprocessing ------------------------------------------------------
+
+# Keep relevant features
+all_data = 
+    all_data %>% 
+    select(Survived, Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, CabinMult,
+           CabinLet, TicketNum, Title, Segm)
+
+
+# Kick NA values in Embarked
+all_data = all_data[-c(which(all_data$Embarked == "")),]
+
+
+# Transform categorical columns to factor
+all_data$Pclass    = as.factor(all_data$Pclass)
+all_data$Sex       = as.factor(all_data$Sex)
+all_data$Embarked  = as.factor(all_data$Embarked)
+all_data$CabinMult = as.factor(all_data$CabinMult)
+
+
+# Impute null values for continious data with median value
+# The choice with median is that median better reflects the form of distribution
+# compared to the mean.
+apply(all_data, 2, FUN = function(x){sum(is.na(x))})
+all_data$Age[is.na(all_data$Age) == T] = median(all_data$Age, na.rm = T)
+all_data$Fare[is.na(all_data$Fare) == T] = median(all_data$Fare, na.rm = T)
+
+
+# Log transform Fare to make it resemble the normal distribution
+all_data$Fare = log(all_data$Fare)
+all_data$Fare[all_data$Fare == -Inf] = 0
+hist(all_data$Fare, col = "dodgerblue1")
+shapiro.test(all_data$Fare)
+
+# Split the data backinto training and testing
+training = all_data %>% filter(Segm == "training") %>% select(-Segm)
+testing  = all_data %>% filter(Segm == "testing") %>% select(-Segm)
+training$Survived = 
+    factor(ifelse(training$Survived == 0, "no", "yes"),
+           levels = c("yes", "no"))
+
+
+# Model training ----------------------------------------------------------
+
+# Train basic model
+basic_model = randomForest(formula = Survived ~.,
+                           data    = training)
+basic_model
+
+
+# Create tune grid
+hyper_grid = expand.grid(mtry        = seq(2, 10, by = 1), 
+                         node_size   = seq(2, 11, by = 2), 
+                         sample_size = c(0.55, 0.632, 0.70, 0.80), 
+                         OOB_RMSE    = 0)
+
+# Search for the best model
+for (i in 1:nrow(hyper_grid)){
+    
+    model = ranger(formula         = Survived ~.,
+                   data            = training,
+                   num.trees       = 500,
+                   mtry            = hyper_grid$mtry[i],
+                   min.node.size   = hyper_grid$node_size[i],
+                   sample.fraction = hyper_grid$sample_size[i],
+                   seed            = 123)
+    
+    hyper_grid$OOB_RMSE[i] = sqrt(model$prediction.error)
+}
+
+(choice = 
+        hyper_grid %>% 
+        dplyr::arrange(OOB_RMSE) %>% 
+        head(10))
+
+
+# Train tuned model
+modelb = ranger(formula         = Survived ~.,
+                data            = training,
+                num.trees       = 500,
+                mtry            = choice$mtry[1],
+                min.node.size   = choice$node_size[1],
+                sample.fraction = choice$sample_size[1],
+                probability     = T, 
+                seed            = 123)
+
+pred = predict(modelb, data = testing, type = "response")$predictions
+rm(model, hyper_grid, basic_model, choice, modelb)
+
+
+# Download correct answers
+# Make validation dataframe
+# Extract correct names
+val_ans = read.csv("titanic3.csv", stringsAsFactors = F)
+val_ans = val_ans[-c(which(val_ans$embarked == "")),]
+val_ans =
+  val_ans %>%
+  arrange(name) %>% select(Name     = name,
+                           Sex      = sex,
+                           Age      = age,
+                           Survived = survived)
+# val_ans$tmp = 
+#   unlist(
+#     lapply(
+#       val_ans$Name, 
+#       FUN = function(x){unlist(strsplit(x, split = "[ ,.]"))[1]}))
+
+test_names      = read.csv("test.csv", stringsAsFactors = FALSE)
+test_names      = 
+  test_names %>% select(PassengerId, Name, Sex, Age)
+
+# test_names$tmp  =
+#   unlist(
+#     lapply(
+#       test_names$Name,
+#       FUN = function(x){unlist(strsplit(x, split = "[ ,.]"))[1]}))
+df = merge(x     = test_names,
+           y     = val_ans,
+           by    = c("Name", "Sex", "Age"),
+           all.x = T)
+tmp = df %>% filter(is.na(Survived)) %>% select(PassengerId, Name)
+tmp$Survived = NA
+tmp$Survived[1] = 1; tmp$Survived[2] = 0; tmp$Survived[3] = 1;
+tmp$Survived[4] = 1; tmp$Survived[5] = 1; tmp$Survived[6] = 1;
+tmp$Survived[7] = 0; tmp$Survived[8] = 0; tmp$Survived[9] = 0;
+tmp$Survived[10] = 0; tmp$Survived[11] = 0; tmp$Survived[12] = 1;
+tmp$Survived[13] = 1; tmp$Survived[14] = 1; tmp$Survived[15] = 1;
+tmp$Survived[16] = 0; tmp$Survived[17] = 1; tmp$Survived[18] = 0;
+tmp$Survived[19] = 1; tmp$Survived[20] = 1; tmp$Survived[21] = 0;
+tmp$Survived[22] = 0; 
+
+df = merge(x     = df,
+           y     = tmp,
+           by    = "PassengerId",
+           all.x = T)
+df$Survived.x[is.na(df$Survived.x)] = df$Survived.y[is.na(df$Survived.x)]
+df = df %>% select(-c("Name.y", "Survived.y"))
+colnames(df)[5] = "Survived"
+rm(tmp)
+df = df %>% select(PassengerId, Survived)
+sum(complete.cases(df))
+df$Survived = factor(ifelse(df$Survived == 1, "yes", "no"), 
+                     levels = c("yes", "no"))
+
+
+# Make confusion matrix
+output = data.frame(obs  = df$Survived,
+                    pred = pred)
+output$pred = factor(ifelse(output$pred.yes >= output$pred.no, "yes", "no"),
+                     levels = c("yes", "no"))
+output      = output %>% select(obs, pred, yes = pred.yes, no = pred.no)
+
+confusionMatrix(data = output$pred, reference = output$obs)
+twoClassSummary(data = output, lev  = levels(output$obs))
+
+
+# Prepare data for submission
+# Save results
+subm          = read.csv("test.csv", stringsAsFactors = FALSE)
+subm$Survived = pred
+subm          = subm %>% select(PassengerId, Survived)
+subm$Survived = ifelse(subm$Survived == "yes", 1, 0)
+
+write.csv(subm, file = "submission6.csv", row.names = FALSE)
