@@ -59,7 +59,11 @@ for (i in 1:ncol(df_num)){
 
 
 # Make correlation plot
-# This does not show any significant correlation between the variables
+# Correlation plot shows that there is a correlation between Age and other
+# numeric variables -- with this it might be a good idea to predict age from
+# other variables and do not use median.
+apply(df_num, 2, FUN = function(x){sum(is.na(x))})
+df_num = na.omit(df_num)
 corrplot::corrplot(corr = cor(df_num), type = "upper", addCoef.col = "black")
 
 
@@ -198,14 +202,74 @@ all_data$Pclass    = as.factor(all_data$Pclass)
 all_data$Sex       = as.factor(all_data$Sex)
 all_data$Embarked  = as.factor(all_data$Embarked)
 all_data$CabinMult = as.factor(all_data$CabinMult)
+all_data$SibSp = as.factor(all_data$SibSp)
+all_data$Parch = as.factor(all_data$Parch)
+all_data$HasCabin = factor(ifelse(all_data$CabinMult == 0, "no", "yes"),
+                           levels = c("yes", "no"))
 
 
 # Impute null values for continious data with median value
 # The choice with median is that median better reflects the form of distribution
 # compared to the mean.
 apply(all_data, 2, FUN = function(x){sum(is.na(x))})
-all_data$Age[is.na(all_data$Age) == T] = median(all_data$Age, na.rm = T)
+# all_data$Age[is.na(all_data$Age) == T] = median(all_data$Age, na.rm = T)
 all_data$Fare[is.na(all_data$Fare) == T] = median(all_data$Fare, na.rm = T)
+
+
+# TODO: prepare normal data for Age
+# TODO: make working random forest model
+# TODO: make predictions for all data and fill NA with predictions
+# Impute NA values for Age with a model
+# Make random forest regression model using grid search
+df_age = 
+  all_data %>% 
+  filter(!is.na(Survived)) %>% 
+  select(Age, Sex, SibSp, Fare, Title)
+
+df_age = df_age %>% filter(!is.na(Age))
+
+basic_model_age = randomForest(formula = Age ~ ., data = df_age)
+basic_model_age
+plot(basic_model_age)
+which.min(basic_model_age$mse)
+sqrt(basic_model_age$mse[which.min(basic_model_age$mse)])
+
+age_grid_srch = expand.grid(mtry        = seq(2, 4, by = 1), 
+                            node_size   = seq(2, 12, by = 2), 
+                            sample_size = c(0.55, 0.632, 0.70, 0.80), 
+                            OOB_RMSE    = 0)
+
+for (i in 1:nrow(age_grid_srch)){
+  
+  model = ranger(formula         = Age ~.,
+                 data            = df_age,
+                 num.trees       = 500,
+                 mtry            = age_grid_srch$mtry[i],
+                 min.node.size   = age_grid_srch$node_size[i],
+                 sample.fraction = age_grid_srch$sample_size[i],
+                 seed            = 123)
+  
+  age_grid_srch$OOB_RMSE[i] = sqrt(model$prediction.error)
+}
+
+(choice = 
+    age_grid_srch %>% 
+    dplyr::arrange(OOB_RMSE) %>% 
+    head(10))
+
+modela = ranger(formula         = Age ~.,
+                data            = df_age,
+                num.trees       = 500,
+                mtry            = choice$mtry[1],
+                min.node.size   = choice$node_size[1],
+                sample.fraction = choice$sample_size[1],
+                probability     = F, 
+                seed            = 123)
+
+
+
+
+
 
 
 # Log transform Fare to make it resemble the normal distribution
@@ -213,6 +277,7 @@ all_data$Fare = log(all_data$Fare)
 all_data$Fare[all_data$Fare == -Inf] = 0
 hist(all_data$Fare, col = "dodgerblue1")
 shapiro.test(all_data$Fare)
+
 
 # Split the data backinto training and testing
 training = all_data %>% filter(Segm == "training") %>% select(-Segm)
@@ -231,8 +296,8 @@ basic_model
 
 
 # Create tune grid
-hyper_grid = expand.grid(mtry        = seq(2, 10, by = 1), 
-                         node_size   = seq(2, 11, by = 2), 
+hyper_grid = expand.grid(mtry        = seq(2, 12, by = 1), 
+                         node_size   = seq(2, 12, by = 2), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
 
@@ -281,21 +346,13 @@ val_ans =
                            Sex      = sex,
                            Age      = age,
                            Survived = survived)
-# val_ans$tmp = 
-#   unlist(
-#     lapply(
-#       val_ans$Name, 
-#       FUN = function(x){unlist(strsplit(x, split = "[ ,.]"))[1]}))
+
 
 test_names      = read.csv("test.csv", stringsAsFactors = FALSE)
 test_names      = 
   test_names %>% select(PassengerId, Name, Sex, Age)
 
-# test_names$tmp  =
-#   unlist(
-#     lapply(
-#       test_names$Name,
-#       FUN = function(x){unlist(strsplit(x, split = "[ ,.]"))[1]}))
+
 df = merge(x     = test_names,
            y     = val_ans,
            by    = c("Name", "Sex", "Age"),
