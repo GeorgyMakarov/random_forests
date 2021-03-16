@@ -212,37 +212,132 @@ all_data$HasCabin = factor(ifelse(all_data$CabinMult == 0, "no", "yes"),
 # The choice with median is that median better reflects the form of distribution
 # compared to the mean.
 apply(all_data, 2, FUN = function(x){sum(is.na(x))})
-# all_data$Age[is.na(all_data$Age) == T] = median(all_data$Age, na.rm = T)
 all_data$Fare[is.na(all_data$Fare) == T] = median(all_data$Fare, na.rm = T)
 
 
-# TODO: prepare normal data for Age
-# TODO: make working random forest model
-# TODO: make predictions for all data and fill NA with predictions
-# Impute NA values for Age with a model
-# Make random forest regression model using grid search
+# # Example of Crammer's V computation using mock data
+# # Use this for **2** categorical variables
+# # TODO: DO NOT DELETE THIS -- use as a part of education in further reading
+# tbl           = matrix(data = c(55, 45, 20, 30), 
+#                        nrow = 2, ncol = 2, byrow = T)
+# dimnames(tbl) = list(City=c('B', 'T'), Gender=c('M', 'F'))
+# 
+# chi2 = chisq.test(tbl, correct = F)
+# 
+# # The p-value is 0.08 > 0.05 so we can't reject the hypothesis of independence.
+# # That means that the data here is independent.
+# c(chi2$statistic, chi2$p.value) 
+# 
+# # Computation of Crammer's V shows the value of 0.14 which is small corr. The
+# # higher the value of V the more the correlation is.
+# sqrt(chi2$statistic / sum(tbl))
+# 
+# # Consider another data
+# # Here the p-value is 0.72 and V-value is 0.03 -- so there is almost no
+# # correlation between the variables
+# tbl = matrix(data=c(51, 49, 24, 26), nrow=2, ncol=2, byrow=T)
+# dimnames(tbl) = list(City=c('B', 'T'), Gender=c('M', 'F'))
+# 
+# chi2 = chisq.test(tbl, correct=F)
+# c(chi2$statistic, chi2$p.value)
+# sqrt(chi2$statistic / sum(tbl))
+#
+# rm(tbl, chi2)
+
+
+# # Example of one-way ANOVA test -- use to find corr between Num and Cat vars
+# # TODO: DO NOT DELETE THIS -- use as a part of education in further reading
+# # H0: the amount of fat absorbed is equal for all 4 types of fat
+# # P-value < 0.05 rejects H0
+# t1 = c(164, 172, 168, 177, 156, 195)
+# t2 = c(178, 191, 197, 182, 185, 177)
+# t3 = c(175, 193, 178, 171, 163, 176)
+# t4 = c(155, 166, 149, 164, 170, 168)
+# 
+# val = c(t1, t2, t3, t4)
+# fac = gl(n=4, k=6, labels=c('type1', 'type2', 'type3', 'type4'))
+# 
+# oneway.test(val ~ fac, var.equal = T)
+# aov1 = aov(val ~ fac)
+# summary(aov1)
+
+
+# # Another example of one-way ANOVA test to confirm understanding
+# # There are four types of diet. The % of fat increases for diet types from 1-4.
+# # H0: fat levels are equal for different diet types
+# set.seed(seed)
+# f1 = rnorm(n = 100, mean = 4,  sd = 0.8)
+# f2 = rnorm(n = 100, mean = 6,  sd = 0.5)
+# f3 = rnorm(n = 100, mean = 8,  sd = 1.0)
+# f4 = rnorm(n = 100, mean = 10, sd = 0.7)
+# 
+# d1 = data.frame(fat = f1, diet = "d1")
+# d2 = data.frame(fat = f2, diet = "d2")
+# d3 = data.frame(fat = f3, diet = "d3")
+# d4 = data.frame(fat = f4, diet = "d4")
+# df = rbind(d1, d2, d3, d4)
+# 
+# rm(f1, f2, f3, f4)
+# rm(d1, d2, d3, d4)
+# 
+# df$diet = as.factor(df$diet)
+# boxplot(df$fat ~ df$diet)
+# 
+# # The p-value is < 0.05 -- we can reject the null hypothesis
+# # This means that there is correlation between diet type and level of fat
+# oneway.test(df$fat ~ df$diet, var.equal = T)
+
+
+# Make correlation between Age and categorical variables
 df_age = 
   all_data %>% 
-  filter(!is.na(Survived)) %>% 
-  select(Age, Sex, SibSp, Fare, Title)
-
+  select(Age, Pclass, Sex, Embarked, CabinMult, 
+         CabinLet, TicketNum, Title, HasCabin)
 df_age = df_age %>% filter(!is.na(Age))
 
-basic_model_age = randomForest(formula = Age ~ ., data = df_age)
-basic_model_age
+# Test oneway ANOVA on Age ~ Pclass. Here the p-value < 0.05 rejects the null
+# H0: passengers of different classes are equally distributed by age
+oneway.test(df_age$Age ~ df_age$Pclass, var.equal = T)
+
+# Oneway test for all variables shows that some variables correlate to Age
+# The output of the test should be read as follows: the lower the squared error
+# the higher is the p-value. In other words the decrease in SS confirms H0.
+# This way corr vars are: Pclass, Sex, Title
+stats::aov(Age ~., data = df_age)
+
+# Confirm the computation above using ANOVA
+# ANOVA shows that p-values < 0.05 are true for: Pclass, Sex, Embarked, Title
+anova(lm(Age ~., data = df_age))
+
+
+# TODO: make predictions for all data and fill NA with predictions
+# Impute NA values for Age with a model
+
+# Make random forest regression model using grid search to predict Age of a
+# passenger in order to substitue NA values. Choose variables correlating with
+# Age ~ SibSp + Pclass + Sex + Embarked + Title
+df_age           = all_data %>% select(Age, SibSp, Pclass, Sex, Embarked, Title)
+df_age_for_train = df_age %>% filter(!is.na(Age))
+
+set.seed(seed)
+in_train  = createDataPartition(df_age_for_train$Age, p = 0.8, list = F)
+age_train = df_age_for_train[in_train,]
+age_test  = df_age_for_train[-in_train,]
+
+basic_model_age = randomForest(formula = Age ~ ., data = age_train)
 plot(basic_model_age)
 which.min(basic_model_age$mse)
 sqrt(basic_model_age$mse[which.min(basic_model_age$mse)])
 
 age_grid_srch = expand.grid(mtry        = seq(2, 4, by = 1), 
-                            node_size   = seq(2, 12, by = 2), 
+                            node_size   = seq(2, 15, by = 2), 
                             sample_size = c(0.55, 0.632, 0.70, 0.80), 
                             OOB_RMSE    = 0)
 
 for (i in 1:nrow(age_grid_srch)){
   
   model = ranger(formula         = Age ~.,
-                 data            = df_age,
+                 data            = age_train,
                  num.trees       = 500,
                  mtry            = age_grid_srch$mtry[i],
                  min.node.size   = age_grid_srch$node_size[i],
@@ -252,24 +347,47 @@ for (i in 1:nrow(age_grid_srch)){
   age_grid_srch$OOB_RMSE[i] = sqrt(model$prediction.error)
 }
 
-(choice = 
+(age_choice = 
     age_grid_srch %>% 
     dplyr::arrange(OOB_RMSE) %>% 
     head(10))
 
 modela = ranger(formula         = Age ~.,
-                data            = df_age,
+                data            = age_train,
                 num.trees       = 500,
-                mtry            = choice$mtry[1],
-                min.node.size   = choice$node_size[1],
-                sample.fraction = choice$sample_size[1],
+                mtry            = age_choice$mtry[1],
+                min.node.size   = age_choice$node_size[1],
+                sample.fraction = age_choice$sample_size[1],
                 probability     = F, 
                 seed            = 123)
 
+modela
+age_pred = predict(modela, data = age_test, type = "response")$predictions
+error    = age_test$Age - round(age_pred, 0)
+rmse_out = sqrt(mean(error^2))
+rmse_out
+head(data.frame(obs = age_test$Age, pred = round(age_pred)), 10)
 
 
+# Check if a model is any better than using a median
+# The model is better than the median
+age_median = rep(median(age_test$Age), nrow(age_test))
+err_median = age_test$Age - age_median
+rmse_med   = sqrt(mean(err_median^2))
+rmse_med
 
 
+# Make predictions for all NA data
+all_age_pred = predict(modela, data = df_age, type = "response")$predictions
+all_age_pred = round(all_age_pred)
+
+all_data$age_temp = all_age_pred
+all_data$Age[is.na(all_data$Age)] = all_data$age_temp[is.na(all_data$Age)]
+all_data = all_data %>% select(-age_temp)
+
+rm(basic_model_age, df_age, df_age_for_train, in_train, model, modela,
+   age_median, age_pred, all_age_pred, err_median, error, i, rmse_med,
+   rmse_out, age_choice, age_grid_srch, age_test, age_train)
 
 
 # Log transform Fare to make it resemble the normal distribution
@@ -297,7 +415,7 @@ basic_model
 
 # Create tune grid
 hyper_grid = expand.grid(mtry        = seq(2, 12, by = 1), 
-                         node_size   = seq(2, 12, by = 2), 
+                         node_size   = seq(2, 15, by = 2), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
 
@@ -400,4 +518,4 @@ subm$Survived = pred
 subm          = subm %>% select(PassengerId, Survived)
 subm$Survived = ifelse(subm$Survived == "yes", 1, 0)
 
-write.csv(subm, file = "submission6.csv", row.names = FALSE)
+write.csv(subm, file = "submission7.csv", row.names = FALSE)
