@@ -184,28 +184,35 @@ rm(militants, ladies, mrs)
 rm(train, test)
 
 
-# Data preprocessing ------------------------------------------------------
+# Add family size
+# Add travelling alone variable
+all_data$fam_size = all_data$SibSp + all_data$Parch
+hist(all_data$fam_size, col = "lightgrey")
+all_data$FamSize = "small"
+all_data$FamSize[all_data$fam_size > 1 & all_data$fam_size <= 3] = "medium"
+all_data$FamSize[all_data$fam_size > 3 & all_data$fam_size <= 4] = "large"
+all_data$FamSize[all_data$fam_size > 4] = "very large"
+all_data$TravAlone = 0
+all_data$TravAlone[all_data$fam_size == 0] = 1
+all_data = all_data %>% select(-fam_size)
+all_data$FamSize   = as.factor(all_data$FamSize)
+all_data$TravAlone = as.factor(all_data$TravAlone)
 
-# Keep relevant features
-all_data = 
-    all_data %>% 
-    select(Survived, Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, CabinMult,
-           CabinLet, TicketNum, Title, Segm)
+all_data %>% group_by(FamSize) %>% summarise(count = n())
+table(all_data$Survived[!is.na(all_data$Survived)], 
+      all_data$FamSize[!is.na(all_data$Survived)])
 
 
-# Kick NA values in Embarked
-all_data = all_data[-c(which(all_data$Embarked == "")),]
-
-
-# Transform categorical columns to factor
-all_data$Pclass    = as.factor(all_data$Pclass)
-all_data$Sex       = as.factor(all_data$Sex)
-all_data$Embarked  = as.factor(all_data$Embarked)
-all_data$CabinMult = as.factor(all_data$CabinMult)
-all_data$SibSp = as.factor(all_data$SibSp)
-all_data$Parch = as.factor(all_data$Parch)
-all_data$HasCabin = factor(ifelse(all_data$CabinMult == 0, "no", "yes"),
-                           levels = c("yes", "no"))
+# Survival rate differs across family size groups
+# We can use the family size to judge the survival rate
+all_data %>%
+  filter(!is.na(Survived)) %>% 
+  group_by(FamSize) %>% 
+  summarise(count = n(), 
+            surv  = sum(as.numeric(Survived), na.rm = T)) %>% 
+  mutate(surv_rate = surv / count) %>% 
+  ggplot2::ggplot() + geom_col(aes(x = FamSize, y = surv_rate), 
+                               fill = "darkgreen")
 
 
 # Impute null values for continious data with median value
@@ -214,6 +221,21 @@ all_data$HasCabin = factor(ifelse(all_data$CabinMult == 0, "no", "yes"),
 apply(all_data, 2, FUN = function(x){sum(is.na(x))})
 all_data$Fare[is.na(all_data$Fare) == T] = median(all_data$Fare, na.rm = T)
 
+
+# Impute empty values in Embarked with modal
+all_data %>% group_by(Embarked) %>% summarise(count = n())
+all_data$Embarked[all_data$Embarked == ""] = "S"
+
+
+# Create has cabin variable
+all_data$HasCabin = factor(ifelse(all_data$CabinMult == 0, "no", "yes"),
+                           levels = c("yes", "no"))
+table(all_data$Survived[!is.na(all_data$Survived)], 
+      all_data$HasCabin[!is.na(all_data$Survived)])
+
+
+# Predict Age and compare it to median subst case
+# Choose one that has better accuracy
 
 # # Example of Crammer's V computation using mock data
 # # Use this for **2** categorical variables
@@ -287,12 +309,12 @@ all_data$Fare[is.na(all_data$Fare) == T] = median(all_data$Fare, na.rm = T)
 # # This means that there is correlation between diet type and level of fat
 # oneway.test(df$fat ~ df$diet, var.equal = T)
 
-
 # Make correlation between Age and categorical variables
 df_age = 
   all_data %>% 
   select(Age, Pclass, Sex, Embarked, CabinMult, 
-         CabinLet, TicketNum, Title, HasCabin)
+         CabinLet, TicketNum, Title, HasCabin,
+         TravAlone, FamSize)
 df_age = df_age %>% filter(!is.na(Age))
 
 # Test oneway ANOVA on Age ~ Pclass. Here the p-value < 0.05 rejects the null
@@ -310,45 +332,38 @@ stats::aov(Age ~., data = df_age)
 anova(lm(Age ~., data = df_age))
 
 
-# TODO: make predictions for all data and fill NA with predictions
-# Impute NA values for Age with a model
-
-# Make random forest regression model using grid search to predict Age of a
-# passenger in order to substitue NA values. Choose variables correlating with
+# Make regression model to predict Age of a passenger in order to substitue 
+# NA values. Choose variables correlating with
 # Age ~ SibSp + Pclass + Sex + Embarked + Title
-df_age           = all_data %>% select(Age, SibSp, Pclass, Sex, Embarked, Title)
-df_age_for_train = df_age %>% filter(!is.na(Age))
+df_age = all_data %>% select(Age, Pclass, Sex, Title, CabinLet)
+
+df_ag = na.omit(df_age)
 
 set.seed(seed)
-in_train  = createDataPartition(df_age_for_train$Age, p = 0.8, list = F)
-age_train = df_age_for_train[in_train,]
-age_test  = df_age_for_train[-in_train,]
+age_intrain = createDataPartition(df_ag$Age, p = 0.8, list = F)
+age_train   = df_ag[age_intrain, ]
+age_test    = df_ag[-age_intrain,]
 
-basic_model_age = randomForest(formula = Age ~ ., data = age_train)
-plot(basic_model_age)
-which.min(basic_model_age$mse)
-sqrt(basic_model_age$mse[which.min(basic_model_age$mse)])
+agesh_grid = expand.grid(mtry        = seq(1, 3, by = 1), 
+                         node_size   = seq(2, 15, by = 1), 
+                         sample_size = c(0.55, 0.632, 0.70, 0.80), 
+                         OOB_RMSE    = 0)
 
-age_grid_srch = expand.grid(mtry        = seq(2, 4, by = 1), 
-                            node_size   = seq(2, 15, by = 2), 
-                            sample_size = c(0.55, 0.632, 0.70, 0.80), 
-                            OOB_RMSE    = 0)
-
-for (i in 1:nrow(age_grid_srch)){
+for (i in 1:nrow(agesh_grid)){
   
   model = ranger(formula         = Age ~.,
                  data            = age_train,
                  num.trees       = 500,
-                 mtry            = age_grid_srch$mtry[i],
-                 min.node.size   = age_grid_srch$node_size[i],
-                 sample.fraction = age_grid_srch$sample_size[i],
+                 mtry            = agesh_grid$mtry[i],
+                 min.node.size   = agesh_grid$node_size[i],
+                 sample.fraction = agesh_grid$sample_size[i],
                  seed            = 123)
   
-  age_grid_srch$OOB_RMSE[i] = sqrt(model$prediction.error)
+  agesh_grid$OOB_RMSE[i] = sqrt(model$prediction.error)
 }
 
 (age_choice = 
-    age_grid_srch %>% 
+    agesh_grid %>% 
     dplyr::arrange(OOB_RMSE) %>% 
     head(10))
 
@@ -362,12 +377,11 @@ modela = ranger(formula         = Age ~.,
                 seed            = 123)
 
 modela
+
 age_pred = predict(modela, data = age_test, type = "response")$predictions
 error    = age_test$Age - round(age_pred, 0)
 rmse_out = sqrt(mean(error^2))
 rmse_out
-head(data.frame(obs = age_test$Age, pred = round(age_pred)), 10)
-
 
 # Check if a model is any better than using a median
 # The model is better than the median
@@ -377,24 +391,106 @@ rmse_med   = sqrt(mean(err_median^2))
 rmse_med
 
 
-# Make predictions for all NA data
+# Make prediction for NA values in Age
 all_age_pred = predict(modela, data = df_age, type = "response")$predictions
-all_age_pred = round(all_age_pred)
+all_age_pred = round(all_age_pred, 0)
 
 all_data$age_temp = all_age_pred
 all_data$Age[is.na(all_data$Age)] = all_data$age_temp[is.na(all_data$Age)]
 all_data = all_data %>% select(-age_temp)
 
-rm(basic_model_age, df_age, df_age_for_train, in_train, model, modela,
-   age_median, age_pred, all_age_pred, err_median, error, i, rmse_med,
-   rmse_out, age_choice, age_grid_srch, age_test, age_train)
+# Make age groups
+# Make a plot to see the correlation between age and survival rate
+# The plot shows that survival rates differ by 10 year age groups
+hist(all_data$Age[all_data$Survived == 1], col = "dodgerblue1")
+surv_by_age = 
+  all_data %>% 
+  na.omit() %>% 
+  select(Age, Survived)
+surv_by_age$RoundAge = round(surv_by_age$Age, digits = -1)
+  
+surv_by_age %>% 
+  group_by(RoundAge) %>% 
+  summarise(count = n(), surv  = sum(as.numeric(Survived), na.rm = T)) %>% 
+  mutate(surv_rate = surv / count) %>%
+  ggplot2::ggplot() + geom_point(aes(x = RoundAge, 
+                                     y = surv_rate, 
+                                     col = RoundAge),
+                                 alpha = 3/4)
+
+all_data$AgeGroup = "kids"
+all_data$AgeGroup[all_data$Age >= 10 & all_data$Age <= 30] = "young"
+all_data$AgeGroup[all_data$Age > 30 & all_data$Age <= 60]  = "mid"
+all_data$AgeGroup[all_data$Age > 60]                       = "elder"
 
 
-# Log transform Fare to make it resemble the normal distribution
-all_data$Fare = log(all_data$Fare)
-all_data$Fare[all_data$Fare == -Inf] = 0
-hist(all_data$Fare, col = "dodgerblue1")
-shapiro.test(all_data$Fare)
+
+
+# Make survival by age group
+all_data %>%
+  filter(!is.na(Survived)) %>% 
+  group_by(AgeGroup) %>% 
+  summarise(count = n(), 
+            surv  = sum(as.numeric(Survived), na.rm = T)) %>% 
+  mutate(surv_rate = surv / count) %>% 
+  ggplot2::ggplot() + geom_col(aes(x = AgeGroup, y = surv_rate), 
+                               fill = "darkgreen")
+all_data$AgeGroup = as.factor(all_data$AgeGroup)
+
+rm(df_ag, df_age, model, modela, surv_by_age, age_choice, age_intrain,
+   age_test, age_train, agesh_grid)
+rm(age_median, age_pred, all_age_pred, err_median, error, i, rmse_med,
+   rmse_out)
+
+# Make Fare group
+hist(all_data$Fare, col = "lightgreen")
+hist(all_data$Fare[all_data$Fare < 50], col = "lightgreen")
+
+all_data$TempFare = "cheap"
+all_data$TempFare[all_data$Fare > 10 & all_data$Fare <= 50] = "medium"
+all_data$TempFare[all_data$Fare > 50] = "expensive"
+
+all_data %>% 
+  na.omit() %>% 
+  group_by(TempFare) %>% 
+  summarise(count = n(), 
+            surv  = sum(as.numeric(Survived), na.rm = T)) %>% 
+  mutate(surv_rate = surv / count) %>% 
+  ggplot2::ggplot() + geom_col(aes(x = TempFare, y = surv_rate), 
+                               fill = "darkgreen")
+all_data$TempFare = as.factor(all_data$TempFare)
+
+
+# Data preprocessing ------------------------------------------------------
+
+# Keep relevant features
+all_data = 
+    all_data %>% 
+    select(Survived, 
+           Pclass, 
+           Sex,
+           Embarked,
+           Segm,
+           CabinMult,
+           CabinLet,
+           TicketNum,
+           Title,
+           FamSize,
+           TravAlone,
+           HasCabin,
+           AgeGroup,
+           TempFare)
+
+
+# Transform categorical columns to factor
+all_data$Pclass    = as.factor(all_data$Pclass)
+all_data$Sex       = as.factor(all_data$Sex)
+all_data$Embarked  = as.factor(all_data$Embarked)
+all_data$CabinMult = as.factor(all_data$CabinMult)
+
+
+
+# TODO: make balanced dataset for training
 
 
 # Split the data backinto training and testing
@@ -415,7 +511,7 @@ basic_model
 
 # Create tune grid
 hyper_grid = expand.grid(mtry        = seq(2, 12, by = 1), 
-                         node_size   = seq(2, 15, by = 2), 
+                         node_size   = seq(2, 15, by = 1), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
 
@@ -514,8 +610,10 @@ twoClassSummary(data = output, lev  = levels(output$obs))
 # Prepare data for submission
 # Save results
 subm          = read.csv("test.csv", stringsAsFactors = FALSE)
-subm$Survived = pred
+pred          = data.frame(pred)
+pred$Survived = 0
+pred$Survived[pred$yes >= pred$no] = 1
+subm$Survived = pred$Survived
 subm          = subm %>% select(PassengerId, Survived)
-subm$Survived = ifelse(subm$Survived == "yes", 1, 0)
 
-write.csv(subm, file = "submission7.csv", row.names = FALSE)
+write.csv(subm, file = "submission8.csv", row.names = FALSE)
