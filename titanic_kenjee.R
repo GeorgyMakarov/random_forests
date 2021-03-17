@@ -489,7 +489,7 @@ all_data$Embarked  = as.factor(all_data$Embarked)
 all_data$CabinMult = as.factor(all_data$CabinMult)
 
 
-
+# TODO: check for correlated variables
 # TODO: make balanced dataset for training
 
 
@@ -504,21 +504,21 @@ training$Survived =
 # Model training ----------------------------------------------------------
 
 # Train basic model
-basic_model = randomForest(formula = Survived ~.,
+basic_model = randomForest(formula = Survived ~ Sex + Pclass + Embarked + AgeGroup + HasCabin,
                            data    = training)
 basic_model
 
 
 # Create tune grid
-hyper_grid = expand.grid(mtry        = seq(2, 12, by = 1), 
-                         node_size   = seq(2, 15, by = 1), 
+hyper_grid = expand.grid(mtry        = seq(2, 4, by = 1), 
+                         node_size   = seq(2, 15, by = 2), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
 
 # Search for the best model
 for (i in 1:nrow(hyper_grid)){
     
-    model = ranger(formula         = Survived ~.,
+    model = ranger(formula         = Survived ~ Sex + Pclass + Embarked + AgeGroup + HasCabin,
                    data            = training,
                    num.trees       = 500,
                    mtry            = hyper_grid$mtry[i],
@@ -616,4 +616,4 @@ pred$Survived[pred$yes >= pred$no] = 1
 subm$Survived = pred$Survived
 subm          = subm %>% select(PassengerId, Survived)
 
-write.csv(subm, file = "submission8.csv", row.names = FALSE)
+write.csv(subm, file = "submission9.csv", row.names = FALSE)
