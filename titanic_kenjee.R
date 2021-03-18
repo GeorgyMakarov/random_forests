@@ -510,7 +510,7 @@ basic_model
 
 
 # Create tune grid
-hyper_grid = expand.grid(mtry        = seq(2, 4, by = 1), 
+hyper_grid = expand.grid(mtry        = seq(2, 3, by = 1), 
                          node_size   = seq(2, 15, by = 2), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
@@ -518,7 +518,7 @@ hyper_grid = expand.grid(mtry        = seq(2, 4, by = 1),
 # Search for the best model
 for (i in 1:nrow(hyper_grid)){
     
-    model = ranger(formula         = Survived ~ Sex + Pclass + Embarked + AgeGroup + HasCabin,
+    model = ranger(formula         = Survived ~ Sex + Pclass + AgeGroup,
                    data            = training,
                    num.trees       = 500,
                    mtry            = hyper_grid$mtry[i],
