@@ -489,10 +489,6 @@ all_data$Embarked  = as.factor(all_data$Embarked)
 all_data$CabinMult = as.factor(all_data$CabinMult)
 
 
-# TODO: check for correlated variables
-# TODO: make balanced dataset for training
-
-
 # Split the data backinto training and testing
 training = all_data %>% filter(Segm == "training") %>% select(-Segm)
 testing  = all_data %>% filter(Segm == "testing") %>% select(-Segm)

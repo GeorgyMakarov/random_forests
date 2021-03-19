@@ -136,18 +136,17 @@ rm(train, test)
 
 # Key takeaways from EDA:
 #  + convert Fare to groups
-#  - predict Age NAs using model / median -- choose the best option
-#  - create Age groups
-#  - create FamSize = SibSp + Parch + 1 and make groups 'small', 'medium' etc.
-#  - use Sex + Pclass + Embarked to predict survived
+#  + predict Age NAs using model / median -- choose the best option
+#  + create Age groups
+#  + create FamSize = SibSp + Parch + 1 and make groups 'small', 'medium' etc.
+#  + try Sex + Pclass + Embarked to predict survived
 
 
 # Ideas from Cabin, Ticket and Title -- based on EDA
-#  - create variable that reflects multiple cabins
-#  - create HasCabin variable
-#  - create TravelAlone variable based on FamSize
-#  - extract Cabin letters
-#  - create numeric ticket
+#  + create variable that reflects multiple cabins
+#  + create TravelAlone variable based on FamSize
+#  + extract Cabin letters
+#  + create numeric ticket
 #  + extract and transform titles
 
 
@@ -333,5 +332,232 @@ all_data$AgeGroup[all_data$Age >= 60] = "elder"
 # Check survival rates across the groups
 prop.table(table(all_data$AgeGroup[!is.na(all_data$Survived)], 
                  all_data$Survived[!is.na(all_data$Survived)]), 1)
+rm(age_choice, age_intrain, age_temp, age_test, age_train, agesh_grid,
+   df_age, model, modela, age_median, age_pred, all_age_pred, err_median,
+   error, i, rmse_med, rmse_out)
 
 
+# Create FamSize variable
+# Create TravAlone if FamSize == 1
+all_data$FamSize = all_data$SibSp + all_data$Parch + 1
+summary(all_data$FamSize)
+all_data$TravAlone = "no"
+all_data$TravAlone[all_data$FamSize == 1] = "yes"
+all_data$TravAlone = as.factor(all_data$TravAlone)
+
+
+# Check survival rates if a person travelled alone
+# The table shows that those who travelled alone had less chance to survive
+# compared to those who travelled with family
+prop.table(table(all_data$TravAlone[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+
+
+# Convert FamSize to FamGroup
+# The table shows that alone travellers represent the most part of the
+# passengers. We have to keep them separate. Families of size 2-3 had similar
+# chances to survive -- we can call it `small` family. The family of 4 is 
+# representative enough with 29 observations and has extremely high survival
+# rate of 0.72 -- we want to keep them separately as 'medium'. Families with
+# more than 5 persons had much lower chance of survival -- we can keep them
+# in the 'large' group.
+table(all_data$FamSize[!is.na(all_data$Survived)])
+prop.table(table(all_data$FamSize[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+all_data$FamGroup = "alone"
+all_data$FamGroup[all_data$FamSize >= 2 & all_data$FamSize <= 3] = "small"
+all_data$FamGroup[all_data$FamSize == 4] = "medium"
+all_data$FamGroup[all_data$FamSize >= 5] = "large"
+prop.table(table(all_data$FamGroup[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+
+
+# Create variable standing for multiple cabins
+# Count the number of cabins and return it as a variable. The table shows that
+# people with higher number of cabins had greater chance of survival. However
+# the count of people with more than 2 cabins is relatively small. Convert
+# to CabinGroups.
+tmp = strsplit(all_data$Cabin, " ")
+tmp = lapply(tmp, function(x) length(unlist(x)))
+all_data$CabinMult = unlist(tmp)
+table(all_data$CabinMult)
+prop.table(table(all_data$CabinMult[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+
+all_data$cabin_temp = "nocabin"
+all_data$cabin_temp[all_data$CabinMult == 1] = "single"
+all_data$cabin_temp[all_data$CabinMult >= 2] = "multiple"
+table(all_data$cabin_temp)
+prop.table(table(all_data$cabin_temp[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+
+all_data$CabinMult = all_data$cabin_temp
+all_data = all_data %>% select(-cabin_temp)
+all_data$CabinMult = as.factor(all_data$CabinMult)
+
+
+# Create factor variable that stands for cabin letter. N stands for none.
+# The table shows that passengers from cabins with letters B to F had greater
+# chance of survival. This allows us to suggest that cabin letter is a good way
+# of predicting survival.
+tmp = all_data$Cabin
+tmp = lapply(tmp, grep, pattern = "[[:alpha:]]")
+tmp[lapply(tmp, length) == 0] = 0
+tmp = unlist(tmp)
+all_data$CabinLet = substr(x = all_data$Cabin, start = tmp, stop = tmp)
+all_data$CabinLet[all_data$CabinLet == ""] = "N"
+
+
+# The table shows that the count of some letters is fairly small. This will
+# not provide us any helpful data. It might be better to convert to HasLetter
+# variable for cabins with letters.
+table(all_data$CabinLet)
+prop.table(table(all_data$CabinLet[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+
+all_data$cabin_letter = "no"
+all_data$cabin_letter[!(all_data$CabinLet %in% "N")] = "yes"
+table(all_data$cabin_letter)
+prop.table(table(all_data$cabin_letter[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+all_data$CabinLet = all_data$cabin_letter
+all_data = all_data %>% select(-cabin_letter)
+rm(tmp)
+
+
+# Create factor variable if ticket contained numeric values: 0 - non-numeric,
+# 1 - numeric ticket.
+# The table shows that the proportion of survived for tickets that contain
+# letters and numeric tickets is the same.
+tmp = lapply(all_data$Ticket, grep, pattern = "[[:alpha:]]")
+tmp[lapply(tmp, length) > 0]  = 0
+tmp[lapply(tmp, length) == 0] = 1
+all_data$TicketNum = unlist(tmp)
+all_data$TicketNum = factor(ifelse(all_data$TicketNum == 1, "yes", "no"),
+                            levels = c("yes", "no"))
+prop.table(table(all_data$TicketNum[!is.na(all_data$Survived)],
+                 all_data$Survived[!is.na(all_data$Survived)]), 1)
+rm(tmp)
+
+
+# Key takeaways from feature engineering
+# Features to take into account:
+# Sex + Pclass + Embarked + FareGroup + Title + AgeGroup + TravAlone +
+# FamGroup + CabinMult + CabinLet
+# Features we are not sure about:
+# Age + SibSp + Parch + Fare + Cabin + FamSize
+
+
+# Data preprocessing ------------------------------------------------------
+
+# Action plan:
+#  + select relevant features
+#  + convert all features to factors
+#  - check for correlated features
+#  - check for outliers
+#  - make balanced dataset
+
+sel_data = all_data %>% select(Survived, Sex, Pclass, Embarked, FareGroup,
+                               Title, AgeGroup, TravAlone, FamGroup, CabinMult,
+                               CabinLet, Segm)
+
+sel_data$AgeGroup = as.factor(sel_data$AgeGroup)
+sel_data$FamGroup = as.factor(sel_data$FamGroup)
+sel_data$CabinLet = as.factor(sel_data$CabinLet)
+
+
+# TODO: check for correlated variables
+# TODO: check for outliers
+# TODO: make balanced dataset for training
+
+
+training = sel_data %>% filter(Segm == "training") %>% select(-Segm)
+testing  = sel_data %>% filter(Segm == "testing") %>% select(-Segm)
+training$Survived = 
+    factor(ifelse(training$Survived == 0, "no", "yes"),
+           levels = c("yes", "no"))
+
+
+# Model training ----------------------------------------------------------
+
+# Action plan:
+#  + no model -- all died
+#  + no model -- all women survived
+#  + random forest1: Sex + Pclass + Embarked
+#  - random forest2: random forest1 + test different features
+#  - random forest with no correlated features
+#  - random forest with no outliers
+
+# No model predict that all died
+# The accuracy is 0.622
+pred_all_died = data.frame(pred = rep(0, 418))
+pred_all_died = factor(ifelse(pred_all_died$pred == 1, "yes", "no"), 
+                       levels = c("yes", "no"))
+output_all_d  = data.frame(obs = ans$Survived, pred = pred_all_died)
+confusionMatrix(data      = output_all_d$pred, 
+                reference = output_all_d$obs)
+rm(pred_all_died, output_all_d)
+
+
+# No model predict that all female survived
+# The accuracy is 0.766
+test_fems = testing
+test_fems$Survived = "no"
+test_fems$Survived[test_fems$Sex == "female"] = "yes"
+test_fems$Survived = factor(test_fems$Survived, levels = c("yes", "no"))
+
+output_fems = data.frame(obs = ans$Survived, pred = test_fems$Survived)
+confusionMatrix(data      = output_fems$pred, 
+                reference = output_fems$obs)
+rm(test_fems, output_fems)
+
+
+# Random forests 
+# Sex + Pclass + Embarked             = 0.7775
+# Survived ~ everything               = 0.7775
+hyper_grid = expand.grid(mtry        = seq(1, 10, by = 1), 
+                         node_size   = seq(2, 15, by = 2), 
+                         sample_size = c(0.55, 0.632, 0.70, 0.80), 
+                         OOB_RMSE    = 0)
+
+for (i in 1:nrow(hyper_grid)){
+    
+    model = ranger(formula         = Survived ~ .,
+                   data            = training,
+                   num.trees       = 500,
+                   mtry            = hyper_grid$mtry[i],
+                   min.node.size   = hyper_grid$node_size[i],
+                   sample.fraction = hyper_grid$sample_size[i],
+                   seed            = 123)
+    
+    hyper_grid$OOB_RMSE[i] = sqrt(model$prediction.error)
+}
+
+(choice = 
+        hyper_grid %>% 
+        dplyr::arrange(OOB_RMSE) %>% 
+        head(10))
+
+
+# Train tuned model
+modelb = ranger(formula         = Survived ~ .,
+                data            = training,
+                num.trees       = 500,
+                mtry            = choice$mtry[1],
+                min.node.size   = choice$node_size[1],
+                sample.fraction = choice$sample_size[1],
+                probability     = T, 
+                seed            = 123)
+
+pred = predict(modelb, data = testing, type = "response")$predictions
+rm(model, hyper_grid, choice, modelb, i)
+
+output      = data.frame(obs  = ans$Survived,
+                         pred = pred)
+output$pred = factor(ifelse(output$pred.yes >= output$pred.no, "yes", "no"),
+                     levels = c("yes", "no"))
+output      = output %>% select(obs, pred, yes = pred.yes, no = pred.no)
+
+confusionMatrix(data = output$pred, reference = output$obs)
+twoClassSummary(data = output, lev  = levels(output$obs))
+rm(output, pred)
