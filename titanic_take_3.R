@@ -133,6 +133,7 @@ sel_data$Pclass    = as.factor(sel_data$Pclass)
 sel_data$Embarked  = as.factor(sel_data$Embarked)
 sel_data$Surname   = as.factor(sel_data$Surname)
 sel_data$Official  = as.factor(sel_data$Official)
+sel_data$IsBoy     = as.factor(sel_data$IsBoy)
 
 
 training = sel_data %>% filter(Segm == "training") %>% select(-Segm)
@@ -188,7 +189,17 @@ output      = output %>% select(obs, pred, yes = pred.yes, no = pred.no)
 
 confusionMatrix(data = output$pred, reference = output$obs)
 twoClassSummary(data = output, lev  = levels(output$obs))
-rm(output, pred)
+# rm(output, pred)
+
+
+# subm          = read.csv("test.csv", stringsAsFactors = FALSE)
+# pred          = data.frame(pred)
+# pred$Survived = 0
+# pred$Survived[pred$yes >= pred$no] = 1
+# subm$Survived = pred$Survived
+# subm          = subm %>% select(PassengerId, Survived)
+# 
+# write.csv(subm, file = "submission9.csv", row.names = FALSE)
 
 
 
