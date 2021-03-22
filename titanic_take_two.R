@@ -466,6 +466,10 @@ sel_data$FamGroup = as.factor(sel_data$FamGroup)
 sel_data$CabinLet = as.factor(sel_data$CabinLet)
 
 
+
+
+
+
 # TODO: check for correlated variables
 # TODO: check for outliers
 # TODO: make balanced dataset for training
@@ -484,9 +488,7 @@ training$Survived =
 #  + no model -- all died
 #  + no model -- all women survived
 #  + random forest1: Sex + Pclass + Embarked
-#  - random forest2: random forest1 + test different features
-#  - random forest with no correlated features
-#  - random forest with no outliers
+
 
 # No model predict that all died
 # The accuracy is 0.622
@@ -514,15 +516,14 @@ rm(test_fems, output_fems)
 
 # Random forests 
 # Sex + Pclass + Embarked             = 0.7775
-# Survived ~ everything               = 0.7775
-hyper_grid = expand.grid(mtry        = seq(1, 10, by = 1), 
+hyper_grid = expand.grid(mtry        = seq(1, 4, by = 1), 
                          node_size   = seq(2, 15, by = 2), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
 
 for (i in 1:nrow(hyper_grid)){
     
-    model = ranger(formula         = Survived ~ .,
+    model = ranger(formula         = Survived ~ Sex + Pclass + Embarked + AgeGroup,
                    data            = training,
                    num.trees       = 500,
                    mtry            = hyper_grid$mtry[i],
@@ -540,7 +541,7 @@ for (i in 1:nrow(hyper_grid)){
 
 
 # Train tuned model
-modelb = ranger(formula         = Survived ~ .,
+modelb = ranger(formula         = Survived ~ Sex + Pclass + Embarked + AgeGroup,
                 data            = training,
                 num.trees       = 500,
                 mtry            = choice$mtry[1],
@@ -561,3 +562,4 @@ output      = output %>% select(obs, pred, yes = pred.yes, no = pred.no)
 confusionMatrix(data = output$pred, reference = output$obs)
 twoClassSummary(data = output, lev  = levels(output$obs))
 rm(output, pred)
+
