@@ -73,27 +73,61 @@ all_data$Title[all_data$Title %in% "Master"] = "boy"
 rm(men, women)
 
 
-# Extract surnames to make child-woman groups
-# Compute family survival rates
+# Make GroupId as concatenation of Surname + Pclass + Ticket + Fare + Embarked
+# Use this to identify family groups or mothers travelling with children
 all_data$Surname = substring(all_data$Name, 0, regexpr(",",all_data$Name)-1)
-all_data$Surname[all_data$Title == 'man'] = 'noGroup'
-all_data$SurnameFreq = ave(1:1309,all_data$Surname,FUN=length)
-all_data$Surname[all_data$SurnameFreq <= 1] = 'noGroup'
+all_data$GroupId = paste(all_data$Surname,
+                         all_data$Pclass,
+                         sub('.$', 'X', all_data$Ticket),
+                         all_data$Fare,
+                         all_data$Embarked,
+                         sep = "-")
 
-all_data$SurnameSurvival = NA
-all_data$SurnameSurvival[1:891] = ave(all_data$Survived[1:891],
-                                      all_data$Surname[1:891])
 
-for (i in 892:1309){
-    all_data$SurnameSurvival[i] =
-        all_data$SurnameSurvival[
-            which(all_data$Surname == all_data$Surname[i])[1]]
+# Identify relatives that travelled together but had different Surnames
+# This is helpful as they most likely all lived or all died together
+all_data$GroupId[all_data$Title == "man"] = 'noGroup'
+all_data$GroupFreq = ave(1:nrow(all_data), all_data$GroupId, FUN = length)
+all_data$GroupId[all_data$GroupFreq <= 1] = 'noGroup'
+all_data$TicketId = paste(all_data$Pclass,
+                          sub('.$', 'X', all_data$Ticket),
+                          all_data$Fare,
+                          all_data$Embarked,
+                          sep = "-")
+for (i in which(all_data$Title != "man" & all_data$GroupId == "noGroup")){
+    all_data$GroupId[i] = 
+        all_data$GroupId[all_data$TicketId == all_data$TicketId[i]][1]
 }
 rm(i)
 
 
-all_data$SurnameSurvival[is.na(all_data$SurnameSurvival)] = 0.5
-summary(all_data)
+# Add survival rates by GroupIds
+all_data$GroupSurvival        = NA
+all_data$GroupSurvival[1:891] = ave(all_data$Survived[1:891],
+                                    all_data$GroupId[1:891])
+for (i in 892:1309){
+    all_data$GroupSurvival[i] =
+        all_data$GroupSurvival[
+            which(all_data$GroupId == all_data$GroupId[i])[1]]
+}
+
+
+# Identify ids of the groups that where not identified properly
+# Substitute non-identified groups Survival with 0 or 1
+tmp = 
+    all_data %>% 
+    filter(is.na(GroupSurvival))
+
+
+# Gibsons: Pclass = 1, Embarked = C, no Cabin -- predict 1
+all_data$GroupSurvival[1260] = 1
+all_data$GroupSurvival[1294] = 1
+
+
+# Peacocks, Klasen, von Billard: Pclass =3, Embarked = S, no Cabin -- predict 0
+perished = setdiff(tmp$PassengerId, c(1260, 1294))
+all_data$GroupSurvival[all_data$PassengerId %in% perished] = 0
+rm(perished)
 
 
 # The data shows that 52% of the boys under 16 survived
@@ -102,37 +136,17 @@ all_data$IsBoy = "no"
 all_data$IsBoy[all_data$Sex == "male" & all_data$Age < 16] = "yes"
 
 
-# Add family size
-all_data$FamSize = all_data$SibSp + all_data$Parch
-
-
-# Add official title
-all_data$Official <- sapply(all_data$Name, 
-                            FUN=function(x) {strsplit(x, split='[,.]')[[1]][2]})
-all_data$Official = sub(' ', '', all_data$Official)
-mils = c("Capt", "Major", "Col", "Sir")
-mmle = c("Mme", "Mlle")
-lads = c("Dona", "the Countess", "Lady")
-
-all_data$Official[all_data$Official %in% mils] = "Sir"
-all_data$Official[all_data$Official %in% mmle] = "Mmle"
-all_data$Official[all_data$Official %in% lads] = "Lady"
-rm(mils, mmle, lads)
-
-
 # Make model --------------------------------------------------------------
 
-# select features
+# Select features
 sel_data = 
     all_data %>% 
-    select(Survived, Sex, Pclass, Embarked, Surname, 
-           SurnameSurvival, Official, Segm)
+    select(Survived, Sex, Pclass, Embarked,
+           GroupId, GroupFreq, GroupSurvival, IsBoy, Segm)
 
 sel_data$Sex       = as.factor(sel_data$Sex)
 sel_data$Pclass    = as.factor(sel_data$Pclass)
 sel_data$Embarked  = as.factor(sel_data$Embarked)
-sel_data$Surname   = as.factor(sel_data$Surname)
-sel_data$Official  = as.factor(sel_data$Official)
 sel_data$IsBoy     = as.factor(sel_data$IsBoy)
 
 
@@ -144,8 +158,8 @@ training$Survived = factor(ifelse(training$Survived == 0, "no", "yes"),
 rm(sel_data)
 
 
-hyper_grid = expand.grid(mtry        = seq(2, ncol(training) - 1, by = 1), 
-                         node_size   = seq(2, 15, by = 2), 
+hyper_grid = expand.grid(mtry        = seq(1, ncol(training) - 1, by = 1), 
+                         node_size   = seq(2, 15, by = 1), 
                          sample_size = c(0.55, 0.632, 0.70, 0.80), 
                          OOB_RMSE    = 0)
 
@@ -153,7 +167,7 @@ for (i in 1:nrow(hyper_grid)){
     
     model = ranger(formula         = Survived ~ .,
                    data            = training,
-                   num.trees       = 500,
+                   num.trees       = 200,
                    mtry            = hyper_grid$mtry[i],
                    min.node.size   = hyper_grid$node_size[i],
                    sample.fraction = hyper_grid$sample_size[i],
@@ -171,7 +185,7 @@ for (i in 1:nrow(hyper_grid)){
 
 modelb = ranger(formula         = Survived ~ .,
                 data            = training,
-                num.trees       = 500,
+                num.trees       = 200,
                 mtry            = choice$mtry[1],
                 min.node.size   = choice$node_size[1],
                 sample.fraction = choice$sample_size[1],
@@ -183,32 +197,10 @@ rm(model, hyper_grid, choice, i)
 
 output      = data.frame(obs  = ans$Survived,
                          pred = pred)
-output$pred = factor(ifelse(output$pred.yes >= output$pred.no, "yes", "no"),
+output$pred = factor(ifelse(output$pred.yes >= 0.55, "yes", "no"),
                      levels = c("yes", "no"))
 output      = output %>% select(obs, pred, yes = pred.yes, no = pred.no)
 
 confusionMatrix(data = output$pred, reference = output$obs)
 twoClassSummary(data = output, lev  = levels(output$obs))
-# rm(output, pred)
-
-
-# subm          = read.csv("test.csv", stringsAsFactors = FALSE)
-# pred          = data.frame(pred)
-# pred$Survived = 0
-# pred$Survived[pred$yes >= pred$no] = 1
-# subm$Survived = pred$Survived
-# subm          = subm %>% select(PassengerId, Survived)
-# 
-# write.csv(subm, file = "submission9.csv", row.names = FALSE)
-
-
-
-
-
-
-
-
-
-
-
-
+rm(output, pred)
